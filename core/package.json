@@ -1,5 +1,6 @@
 {
   "name": "debug-proxy-core",
   "author": "Jingkun Hua <huajingkun1214@gmail.com>",
-  "license": "GPLv3"
+  "license": "UNLICENSED",
+  "private": true
 }
