@@ -4,18 +4,18 @@ import * as url from 'url'
 import * as tls from 'tls'
 import * as http from 'http'
 import * as https from 'https'
+
 import getPort from 'get-port'
+import { SessionManager } from './session'
 
 const MAIN_SERVER_PORT = 8888
-const portsConfigStore: Record<number, any> = {}
+const sessions = new SessionManager()
 
 const server = http.createServer((req, res) => {
-  console.log(req.method, req.url)
-
-  const config = portsConfigStore[req.socket.remotePort!]
+  let session = sessions.get(req.socket)
   let destinationUrl: string = req.url || ''
-  if (config) {
-    destinationUrl = `${config.protocol}://${config.request.url}${destinationUrl}`
+  if (session) {
+    destinationUrl = `${session.url.protocol}//${session.url.hostname}${req.url}`
   }
 
   if (!destinationUrl) {
@@ -24,6 +24,7 @@ const server = http.createServer((req, res) => {
     res.end()
   }
 
+  console.log(req.method, destinationUrl)
   const parsedUrl = url.parse(destinationUrl)
 
   let dispatcher: any = http
@@ -33,7 +34,7 @@ const server = http.createServer((req, res) => {
 
   const forwardedReq: http.ClientRequest = dispatcher.request({
     method: req.method,
-    host: parsedUrl.hostname,
+    hostname: parsedUrl.hostname,
     port: parsedUrl.port,
     path: parsedUrl.path,
     headers: req.headers,
@@ -62,20 +63,12 @@ const tlsServer = tls.createServer({
 })
 
 tlsServer.on('secureConnection', tlsSocket => {
-  const config = portsConfigStore[tlsSocket.remotePort!]
+  // const config = portsConfigStore[tlsSocket.remotePort!]
 
   function http () {
     const srvSocket = net.connect(MAIN_SERVER_PORT, 'localhost', () => {
-      const { localPort } = srvSocket
-      portsConfigStore[localPort] = {
-        protocol: 'https',
-        httpConnector: srvSocket,
-        ...config
-      }
-
-      srvSocket.on('end', () => {
-        delete portsConfigStore[localPort]
-      })
+      const session = sessions.link(tlsSocket, srvSocket)
+      session.url.protocol = 'https:'
 
       srvSocket.pipe(tlsSocket)
       tlsSocket.pipe(srvSocket)
@@ -89,7 +82,7 @@ tlsServer.on('secureConnection', tlsSocket => {
 
   tlsSocket.once('readable', () => {
     const data: Buffer = tlsSocket.read()
-    if (isChar(data[0]) && isChar(data[1]) && isChar(data[2])) {
+    if (Buffer.isBuffer(data) && isChar(data[0]) && isChar(data[1]) && isChar(data[2])) {
       http()
     } else {
       return tlsSocket.end()
@@ -103,6 +96,10 @@ getPort().then(tlsPort => {
   tlsServer.listen(tlsPort)
   server.on('connect', (req: http.IncomingMessage, resSocket: net.Socket, head: Buffer) => {
     console.log('CONNECT', req.url)
+    sessions.create({
+      request: req,
+      url: `connect://${req.url}`
+    })
 
     const srvSocket = net.connect(tlsPort, 'localhost', () => {
       resSocket.write(
@@ -111,16 +108,7 @@ getPort().then(tlsPort => {
         '\r\n'
       )
 
-      const { localPort } = srvSocket
-      portsConfigStore[localPort] = {
-        request: req,
-        response: resSocket,
-        tlsConnector: srvSocket
-      }
-
-      srvSocket.on('end', () => {
-        delete portsConfigStore[localPort]
-      })
+      sessions.link(resSocket, srvSocket)
 
       srvSocket.write(head)
       srvSocket.pipe(resSocket)
