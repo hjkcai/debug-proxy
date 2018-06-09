@@ -1,6 +1,7 @@
 {
   "extends": "tslint-config-standard",
   "rules": {
-    "radix": false
+    "radix": false,
+    "no-trailing-whitespace": [true, "ignore-jsdoc"]
   }
 }
