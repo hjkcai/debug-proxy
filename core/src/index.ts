@@ -15,7 +15,7 @@ const server = http.createServer((req, res) => {
   let session = sessions.get(req.socket)
   let destinationUrl: string = req.url || ''
   if (session) {
-    destinationUrl = `${session.url.protocol}//${session.url.hostname}${req.url}`
+    destinationUrl = `${session.url.protocol}//${session.url.host}${req.url}`
   }
 
   if (!destinationUrl) {
@@ -50,7 +50,7 @@ const server = http.createServer((req, res) => {
     res.end()
   })
 
-  forwardedReq.end()
+  req.pipe(forwardedReq)
 }).listen(MAIN_SERVER_PORT)
 
 function isChar (char: number) {
