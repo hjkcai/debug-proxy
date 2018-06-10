@@ -9,18 +9,22 @@ export interface Session {
   /** A unique auto-increment session id */
   id: number
 
+  socket: net.Socket
+  socketChain: net.Socket[]
+
   request: http.IncomingMessage
   response: http.ServerResponse
-  socket: net.Socket
 
-  url: url.UrlWithStringQuery
+  hostname: string
+  port: number
+  protocol: string
 }
 
 export interface CreateSessionData {
   request: http.IncomingMessage,
   response?: http.ServerResponse,
   socket?: net.Socket,
-  url?: string
+  host?: string
 }
 
 export class SessionManager {
@@ -30,15 +34,26 @@ export class SessionManager {
   public create (data: CreateSessionData): Session {
     const session: Session = {
       id: ++this.autoIncrement,
+      socket: data.socket || data.request.socket,
+      socketChain: [],
       request: data.request,
       response: data.response!,
-      socket: data.socket || data.request.socket,
-      url: url.parse(data.url || data.request.url || '', false)
+      hostname: '',
+      port: 0,
+      protocol: ''
+    }
+
+    const host = data.host || data.request.url || ''
+    const hostMatch = host.match(/^(.*):(\d+)$/)
+    if (hostMatch) {
+      session.hostname = hostMatch[1]
+      session.port = parseInt(hostMatch[2])
     }
 
     const { socket } = session
     if (!socket) throw new TypeError('No socket found')
 
+    session.socketChain.push(socket)
     return this.createSession(socket, this.getSessionKey(socket), session)
   }
 
@@ -75,9 +90,15 @@ export class SessionManager {
   }
 
   private createSession (socket: net.Socket, sessionKey: string, session: Session) {
-    if (this.sessions.has(sessionKey)) throw new TypeError('Session already exists')
+    if (this.sessions.has(sessionKey)) {
+      throw new TypeError('Session already exists')
+    }
 
     const cleanSession = () => {
+      if (this.sessions.has(sessionKey)) {
+        console.log(`${session.id}\tSession ${sessionKey} is destroyed`)
+      }
+
       // Automatically remove the session when the socket ends or is closed
       this.sessions.delete(sessionKey)
     }
